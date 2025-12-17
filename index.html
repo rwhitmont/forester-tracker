@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Forester Maintenance Tracker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+* { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+body { background: #0f172a; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ============================================
+// SUPABASE CONFIGURATION - UPDATE THESE VALUES
+// ============================================
+const SUPABASE_URL = 'https://trazzmxgdcpcowskzfll.supabase.co'; 
+const SUPABASE_ANON_KEY = 'sb_publishable_el0rlOBo834RZ8f0IeZmZQ_Ly8S8RvM';
+// ============================================
+
+// Initialize Supabase client
+const supabase = SUPABASE_URL !== 'YOUR_SUPABASE_URL'
+? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+: null;
+
+// Part definitions with descriptions, tags, providers, and check/replace info
+const partsDefinition = [
+{
+id: 'oil', name: 'Engine Oil & Filter', interval: 4000, intervalType: 'replace', checkInterval: null,
+category: 'Engine', icon: '🛢️', tags: ['critical', 'engine-health'],
+provider: 'any', providerNote: 'Any mechanic, quick lube, or DIY. Use 0W-20 full synthetic only.',
+diyDifficulty: 'Easy',
+description: 'Engine oil lubricates moving parts, reduces friction, and carries away heat and debris. This is the single most important maintenance item.'
+},
+{
+id: 'cvt', name: 'CVT Transmission Fluid', interval: 30000, intervalType: 'replace', checkInterval: null,
+category: 'Transmission', icon: '⚙️', tags: ['critical', 'drivetrain'],
+provider: 'specialist', providerNote: 'Subaru dealer or transmission specialist. Must use Subaru CVT fluid.',
+diyDifficulty: 'Not recommended',
+description: 'CVT fluid lubricates the continuously variable transmission. Neglected fluid causes chain slip and premature failure. CVT replacement costs $8,000-$11,000.'
+},
+{
+id: 'diff-front', name: 'Front Differential Fluid', interval: 30000, intervalType: 'replace', checkInterval: null,
+category: 'Drivetrain', icon: '🔧', tags: ['important', 'drivetrain', 'awd'],
+provider: 'any', providerNote: 'Any mechanic or Subaru dealer. Use 75W-90 GL-5 gear oil.',
+diyDifficulty: 'Moderate',
+description: 'The front differential distributes power to the front wheels. Neglected fluid causes gear wear and eventual failure.'
+},
+{
+id: 'diff-rear', name: 'Rear Differential Fluid', interval: 30000, intervalType: 'replace', checkInterval: null,
+category: 'Drivetrain', icon: '🔧', tags: ['important', 'drivetrain', 'awd'],
+provider: 'any', providerNote: 'Any mechanic or Subaru dealer. Use 75W-90 GL-5 gear oil.',
+diyDifficulty: 'Moderate',
+description: 'The rear differential handles power transfer to rear wheels and is critical for AWD operation.'
+},
+{
+id: 'brake-fluid', name: 'Brake Fluid', interval: 24000, intervalType: 'replace', checkInterval: 12000,
+category: 'Brakes', icon: '🛑', tags: ['safety-critical', 'brakes'],
+provider: 'any', providerNote: 'Any mechanic. Requires bleeding all four corners. DOT 3 or DOT 4 fluid.',
+diyDifficulty: 'Moderate',
+description: 'Brake fluid transfers pedal pressure to brake calipers. Contaminated fluid can cause brake fade and corrode ABS components ($1,200+ repair).'
+},
+{
+id: 'spark-plugs', name: 'Spark Plugs', interval: 60000, intervalType: 'replace', checkInterval: 30000,
+category: 'Engine', icon: '⚡', tags: ['important', 'engine-health', 'fuel-economy'],
+provider: 'any', providerNote: 'Any mechanic or DIY. Use NGK iridium plugs (OEM spec).',
+diyDifficulty: 'Moderate',
+description: 'Spark plugs ignite the air-fuel mixture. Worn plugs cause misfires, rough idle, and reduced fuel economy.'
+},
+{
+id: 'coolant', name: 'Engine Coolant', interval: 75000, intervalType: 'replace', checkInterval: 15000, firstChange: 137500,
+category: 'Engine', icon: '❄️', tags: ['critical', 'engine-health'],
+provider: 'any', providerNote: 'Any mechanic or DIY. Use Subaru Super Coolant (blue) or equivalent.',
+diyDifficulty: 'Easy-Moderate',
+description: 'Coolant regulates engine temperature. First change at 137.5k miles, then every 75k.'
+},
+{
+id: 'air-filter', name: 'Engine Air Filter', interval: 30000, intervalType: 'replace', checkInterval: 15000,
+category: 'Filters', icon: '💨', tags: ['important', 'engine-health', 'fuel-economy'],
+provider: 'diy', providerNote: 'Easy DIY—takes 2 minutes. Or any oil change shop.',
+diyDifficulty: 'Very Easy',
+description: 'The engine air filter prevents debris from entering the engine. A clogged filter reduces power and fuel economy.'
+},
+{
+id: 'cabin-filter', name: 'Cabin Air Filter', interval: 15000, intervalType: 'replace', checkInterval: null,
+category: 'Filters', icon: '🌬️', tags: ['comfort', 'air-quality'],
+provider: 'diy', providerNote: 'Easy DIY behind glove box—takes 5 minutes.',
+diyDifficulty: 'Very Easy',
+description: 'The cabin filter cleans air entering the passenger compartment. Not safety-critical but important for air quality.'
+},
+{
+id: 'brake-pads-front', name: 'Front Brake Pads', interval: 50000, intervalType: 'replace', checkInterval: 15000,
+category: 'Brakes', icon: '🛑', tags: ['safety-critical', 'brakes'],
+provider: 'any', providerNote: 'Any mechanic. Replace when pads reach 3mm thickness.',
+diyDifficulty: 'Moderate',
+description: 'Front brake pads provide ~70% of stopping power. Worn pads reduce braking and damage rotors.'
+},
+{
+id: 'brake-pads-rear', name: 'Rear Brake Pads', interval: 50000, intervalType: 'replace', checkInterval: 15000,
+category: 'Brakes', icon: '🛑', tags: ['safety-critical', 'brakes'],
+provider: 'any', providerNote: 'Any mechanic. Usually last longer than fronts.',
+diyDifficulty: 'Moderate',
+description: 'Rear brake pads assist stopping and engage the parking brake. Replaced June 2024.'
+},
+{
+id: 'brake-rotors-front', name: 'Front Brake Rotors', interval: 70000, intervalType: 'replace', checkInterval: 30000,
+category: 'Brakes', icon: '🛑', tags: ['safety-critical', 'brakes'],
+provider: 'any', providerNote: 'Any mechanic. Can sometimes be resurfaced instead of replaced.',
+diyDifficulty: 'Moderate',
+description: 'Brake rotors are the discs that pads clamp against. Worn or warped rotors cause vibration when braking.'
+},
+{
+id: 'brake-rotors-rear', name: 'Rear Brake Rotors', interval: 70000, intervalType: 'replace', checkInterval: 30000,
+category: 'Brakes', icon: '🛑', tags: ['safety-critical', 'brakes'],
+provider: 'any', providerNote: 'Any mechanic. Replaced June 2024—good for 60k+ miles.',
+diyDifficulty: 'Moderate',
+description: 'Rear rotors were replaced at 110k miles (June 2024).'
+},
+{
+id: 'battery', name: 'Battery', interval: 60000, intervalType: 'replace', checkInterval: 12000,
+category: 'Electrical', icon: '🔋', tags: ['important', 'reliability'],
+provider: 'any', providerNote: 'Any auto parts store (often free install) or DIY.',
+diyDifficulty: 'Easy',
+description: 'The 12V battery starts the engine. Replaced November 2023—expect 4-5 more years.'
+},
+{
+id: 'tires', name: 'Tires', interval: 50000, intervalType: 'replace', checkInterval: 5000,
+category: 'Tires', icon: '🛞', tags: ['safety-critical', 'handling'],
+provider: 'tire-shop', providerNote: 'Tire shop or dealer. Check tread depth with penny test.',
+diyDifficulty: 'Requires shop',
+description: 'Tires are your only contact with the road. Replace at 4/32" for winter safety. Last mounted November 2021.'
+},
+{
+id: 'tire-rotation', name: 'Tire Rotation', interval: 5000, intervalType: 'service', checkInterval: null,
+category: 'Tires', icon: '🔄', tags: ['wear-prevention', 'handling'],
+provider: 'any', providerNote: 'Usually included with oil change. Critical for AWD.',
+diyDifficulty: 'Easy with jack stands',
+description: 'Rotating tires ensures even wear. On AWD vehicles, mismatched tire circumference causes drivetrain damage.'
+},
+{
+id: 'alignment', name: 'Wheel Alignment', interval: 25000, intervalType: 'service', checkInterval: 12000,
+category: 'Suspension', icon: '↔️', tags: ['wear-prevention', 'handling', 'fuel-economy'],
+provider: 'alignment-shop', providerNote: 'Tire shop or dealer with alignment rack.',
+diyDifficulty: 'Requires shop',
+description: 'Alignment ensures wheels point correctly. Misalignment causes uneven tire wear and pulling.'
+},
+{
+id: 'rust-treatment', name: 'Undercarriage Rust Treatment', interval: 12000, intervalType: 'service', checkInterval: null,
+category: 'Body', icon: '🛡️', tags: ['preventive', 'longevity', 'salt-belt'],
+provider: 'rust-specialist', providerNote: 'Krown, Fluid Film, or Woolwax specialist. Apply each fall.',
+diyDifficulty: 'Moderate',
+description: 'Annual rust treatment protects from road salt. Northeast salt destroys untreated vehicles within 10-15 years.'
+},
+{
+id: 'drive-belt', name: 'Drive Belt (Serpentine)', interval: 100000, intervalType: 'replace', checkInterval: 30000,
+category: 'Engine', icon: '➰', tags: ['important', 'reliability'],
+provider: 'any', providerNote: 'Any mechanic or DIY. Check for cracks, fraying, or glazing.',
+diyDifficulty: 'Moderate',
+description: 'The serpentine belt drives alternator, A/C, and power steering. A broken belt causes immediate loss of these systems.'
+},
+{
+id: 'pcv-valve', name: 'PCV Valve', interval: 60000, intervalType: 'replace', checkInterval: 30000,
+category: 'Engine', icon: '🔩', tags: ['maintenance', 'engine-health'],
+provider: 'any', providerNote: 'Any mechanic or easy DIY. $15-25 part.',
+diyDifficulty: 'Easy',
+description: 'The PCV valve routes blow-by gases back to the intake. A stuck valve causes oil leaks and rough idle.'
+},
+];
+
+// Carfax historical service data
+const carfaxHistory = [
+{ id: 'cf-1', date: '02/14/2018', mileage: 9, location: 'Curry Subaru Kingston', items: ['Pre-delivery inspection'], serviceType: 'check' },
+{ id: 'cf-2', date: '07/03/2018', mileage: 5337, location: 'Curry Subaru Kingston', items: ['5,000 mile service'], serviceType: 'replace' },
+{ id: 'cf-3', date: '09/20/2018', mileage: 11003, location: 'Curry Subaru Kingston', items: ['10,000 mile service'], serviceType: 'replace' },
+{ id: 'cf-4', date: '12/12/2018', mileage: 15742, location: 'Curry Subaru Kingston', items: ['Vehicle serviced'], serviceType: 'replace' },
+{ id: 'cf-5', date: '04/01/2019', mileage: 21430, location: 'Curry Subaru Kingston', items: ['Brakes checked', 'Rotors resurfaced'], serviceType: 'check' },
+{ id: 'cf-6', date: '07/18/2019', mileage: 29191, location: 'Curry Subaru Kingston', items: ['30,000 mile service'], serviceType: 'replace' },
+{ id: 'cf-7', date: '11/11/2019', mileage: 35121, location: 'Curry Subaru Kingston', items: ['35,000 mile service'], serviceType: 'replace' },
+{ id: 'cf-8', date: '02/06/2020', mileage: 40197, location: 'Curry Subaru Kingston', items: ['40,000 mile service'], serviceType: 'replace' },
+{ id: 'cf-9', date: '07/29/2020', mileage: 44760, location: 'Curry Subaru Kingston', items: ['Brakes checked', 'Cabin filter replaced'], serviceType: 'replace' },
+{ id: 'cf-10', date: '12/11/2020', mileage: 49906, location: 'Curry Subaru Kingston', items: ['50,000 mile service'], serviceType: 'replace' },
+{ id: 'cf-11', date: '03/31/2021', mileage: 52691, location: 'Curry Subaru Kingston', items: ['Four wheel alignment'], serviceType: 'service' },
+{ id: 'cf-12', date: '10/04/2021', mileage: 62072, location: 'Curry Subaru Kingston', items: ['60,000 mile service'], serviceType: 'replace' },
+{ id: 'cf-13', date: '11/23/2021', mileage: 64642, location: 'Curry Subaru Kingston', items: ['Tires mounted'], serviceType: 'replace' },
+{ id: 'cf-14', date: '07/25/2022', mileage: 74848, location: 'Curry Subaru Kingston', items: ['Brakes checked', 'Cabin filter replaced'], serviceType: 'replace' },
+{ id: 'cf-15', date: '11/20/2022', mileage: 80972, location: 'Monro Auto Service', items: ['Maintenance inspection', 'Tires balanced'], serviceType: 'check' },
+{ id: 'cf-16', date: '01/18/2023', mileage: 82900, location: 'Curry Subaru Kingston', items: ['Brakes checked'], serviceType: 'check' },
+{ id: 'cf-17', date: '06/14/2023', mileage: 91346, location: 'Curry Subaru Kingston', items: ['Front brake rotors replaced'], serviceType: 'replace' },
+{ id: 'cf-18', date: '07/18/2023', mileage: 93130, location: 'Curry Subaru Kingston', items: ['Oil and filter changed', 'Tires rotated'], serviceType: 'replace' },
+{ id: 'cf-19', date: '11/16/2023', mileage: 98881, location: 'Curry Subaru Kingston', items: ['Oil and filter changed', 'Tires rotated'], serviceType: 'replace' },
+{ id: 'cf-20', date: '11/17/2023', mileage: 98969, location: 'Walmart Auto Care', items: ['Battery replaced'], serviceType: 'replace' },
+{ id: 'cf-21', date: '06/18/2024', mileage: 110497, location: 'Euro Nutz', items: ['Rear brake pads replaced', 'Rear rotors replaced'], serviceType: 'replace' },
+{ id: 'cf-22', date: '08/06/2025', mileage: 129504, location: 'Sharp Transmissions', items: ['CVT fluid changed', 'Transaxle checked'], serviceType: 'replace' },
+{ id: 'cf-23', date: '09/18/2025', mileage: 129740, location: 'Romeo Kia of Kingston', items: ['Oil and filter changed'], serviceType: 'replace' },
+];
+
+const providerInfo = {
+'diy': { label: '🔧 DIY', color: 'bg-green-600' },
+'any': { label: '🔧 Any Mechanic', color: 'bg-blue-600' },
+'specialist': { label: '🏪 Specialist', color: 'bg-purple-600' },
+'tire-shop': { label: '🛞 Tire Shop', color: 'bg-orange-600' },
+'alignment-shop': { label: '↔️ Alignment Shop', color: 'bg-orange-600' },
+'rust-specialist': { label: '🛡️ Rust Specialist', color: 'bg-amber-700' },
+};
+
+const tagStyles = {
+'safety-critical': 'bg-red-600 text-white',
+'critical': 'bg-red-500 text-white',
+'important': 'bg-orange-500 text-white',
+'wear-prevention': 'bg-yellow-500 text-black',
+'preventive': 'bg-yellow-500 text-black',
+'maintenance': 'bg-green-600 text-white',
+'comfort': 'bg-green-500 text-white',
+'engine-health': 'bg-blue-600 text-white',
+'drivetrain': 'bg-purple-600 text-white',
+'awd': 'bg-purple-500 text-white',
+'brakes': 'bg-red-400 text-white',
+'fuel-economy': 'bg-emerald-600 text-white',
+'air-quality': 'bg-cyan-600 text-white',
+'reliability': 'bg-indigo-600 text-white',
+'handling': 'bg-pink-600 text-white',
+'longevity': 'bg-teal-600 text-white',
+'salt-belt': 'bg-amber-700 text-white',
+};
+
+const getEstimatedCost = (partId) => {
+const costs = {
+'oil': '$75-100', 'cvt': '$200-300', 'diff-front': '$100-150', 'diff-rear': '$100-150',
+'brake-fluid': '$80-120', 'spark-plugs': '$150-250', 'coolant': '$150-200',
+'air-filter': '$25-50', 'cabin-filter': '$25-50', 'brake-pads-front': '$200-350',
+'brake-pads-rear': '$200-350', 'brake-rotors-front': '$300-450', 'brake-rotors-rear': '$300-450',
+'battery': '$150-250', 'tires': '$600-1000', 'tire-rotation': '$0-25', 'alignment': '$80-120',
+'rust-treatment': '$150-250', 'drive-belt': '$150-250', 'pcv-valve': '$30-60',
+};
+return costs[partId] || '$50-150';
+};
+
+// Main App
+const App = () => {
+const [activeTab, setActiveTab] = useState('service');
+const [currentMileage, setCurrentMileage] = useState(130000);
+const [mileageInput, setMileageInput] = useState('130000');
+const [isEditingMileage, setIsEditingMileage] = useState(false);
+const [completedServices, setCompletedServices] = useState([]);
+const [expandedPart, setExpandedPart] = useState(null);
+const [expandedService, setExpandedService] = useState(null);
+const [editingService, setEditingService] = useState(null);
+const [partsSort, setPartsSort] = useState('urgency');
+const [partsSearch, setPartsSearch] = useState('');
+const [showExport, setShowExport] = useState(false);
+const [isLoading, setIsLoading] = useState(true);
+const [syncStatus, setSyncStatus] = useState('loading');
+const [showPartInfo, setShowPartInfo] = useState(null);
+const [showCompleteModal, setShowCompleteModal] = useState(null);
+const [completeForm, setCompleteForm] = useState({});
+const [editForm, setEditForm] = useState({});
+
+// Load data from Supabase
+useEffect(() => {
+const loadData = async () => {
+if (!supabase) {
+setSyncStatus('not-configured');
+setIsLoading(false);
+return;
+}
+
+try {
+// Load settings (mileage)
+const { data: settings } = await supabase
+.from('settings')
+.select('*')
+.eq('key', 'current_mileage')
+.single();
+
+if (settings) {
+setCurrentMileage(parseInt(settings.value));
+setMileageInput(settings.value);
+}
+
+// Load completed services
+const { data: services } = await supabase
+.from('services')
+.select('*')
+.order('mileage', { ascending: false });
+
+if (services) {
+setCompletedServices(services.map(s => ({
+...s,
+items: JSON.parse(s.items || '[]'),
+history: JSON.parse(s.history || '[]'),
+})));
+}
+
+setSyncStatus('synced');
+} catch (error) {
+console.error('Error loading data:', error);
+setSyncStatus('error');
+}
+setIsLoading(false);
+};
+
+loadData();
+}, []);
+
+// Save mileage to Supabase
+const saveMileage = async (miles) => {
+if (!supabase) return;
+
+setSyncStatus('syncing');
+try {
+await supabase
+.from('settings')
+.upsert({ key: 'current_mileage', value: miles.toString() });
+setSyncStatus('synced');
+} catch (error) {
+console.error('Error saving mileage:', error);
+setSyncStatus('error');
+}
+};
+
+// Save service to Supabase
+const saveService = async (service) => {
+if (!supabase) return;
+
+setSyncStatus('syncing');
+try {
+const dbService = {
+...service,
+items: JSON.stringify(service.items),
+history: JSON.stringify(service.history || []),
+};
+
+await supabase.from('services').upsert(dbService);
+setSyncStatus('synced');
+} catch (error) {
+console.error('Error saving service:', error);
+setSyncStatus('error');
+}
+};
+
+const handleMileageUpdate = () => {
+const newMileage = parseInt(mileageInput) || 0;
+setCurrentMileage(newMileage);
+setIsEditingMileage(false);
+saveMileage(newMileage);
+};
+
+const handleMileageCancel = () => {
+setMileageInput(currentMileage.toString());
+setIsEditingMileage(false);
+};
+
+const getPartById = (partId) => partsDefinition.find(p => p.id === partId);
+
+const getPartServiceHistory = (partId) => {
+const partKeywords = {
+'oil': ['oil', 'filter changed', 'mile service'],
+'cvt': ['cvt', 'transmission fluid'],
+'diff-front': ['differential', 'diff fluid'],
+'diff-rear': ['differential', 'diff fluid'],
+'brake-fluid': ['brake fluid'],
+'spark-plugs': ['spark plug', '60,000 mile', '120,000 mile'],
+'coolant': ['coolant'],
+'air-filter': ['engine air filter', 'air filter replace'],
+'cabin-filter': ['cabin air filter', 'cabin filter'],
+'brake-pads-front': ['front brake pad', 'front pad'],
+'brake-pads-rear': ['rear brake pad', 'rear pad'],
+'brake-rotors-front': ['front brake rotor', 'front rotor'],
+'brake-rotors-rear': ['rear brake rotor', 'rear rotor'],
+'battery': ['battery replac'],
+'tires': ['tire mounted', 'tires mounted', 'new tire'],
+'tire-rotation': ['tire rotat', 'tires rotat'],
+'alignment': ['alignment'],
+'rust-treatment': ['rust', 'undercoat'],
+'drive-belt': ['drive belt', 'serpentine'],
+'pcv-valve': ['pcv'],
+};
+
+const keywords = partKeywords[partId] || [];
+const allHistory = [...carfaxHistory, ...completedServices.filter(s => s.source === 'user')];
+
+return allHistory.filter(service => {
+const itemsLower = (service.items || []).map(i => i.toLowerCase()).join(' ');
+return keywords.some(kw => itemsLower.includes(kw.toLowerCase()));
+}).sort((a, b) => b.mileage - a.mileage);
+};
+
+const getPartHealth = (part) => {
+const history = getPartServiceHistory(part.id);
+const replacements = history.filter(h => h.serviceType === 'replace' || h.serviceType === 'service');
+const lastReplacement = replacements[0];
+const lastReplacementMileage = lastReplacement?.mileage || 0;
+
+const effectiveInterval = part.firstChange && lastReplacementMileage === 0 ? part.firstChange : part.interval;
+const milesSinceReplacement = currentMileage - lastReplacementMileage;
+const percentUsed = Math.min((milesSinceReplacement / effectiveInterval) * 100, 100);
+const milesRemaining = effectiveInterval - milesSinceReplacement;
+
+return {
+percentUsed, milesRemaining, lastReplacementMileage,
+lastReplacementDate: lastReplacement?.date,
+status: percentUsed >= 100 ? 'overdue' : percentUsed >= 80 ? 'due-soon' : 'good',
+history
+};
+};
+
+const generateMilestones = () => {
+const milestones = [];
+
+partsDefinition.forEach(part => {
+const health = getPartHealth(part);
+
+if (health.status === 'overdue' || health.status === 'due-soon') {
+const nextDue = health.lastReplacementMileage + (part.firstChange && health.lastReplacementMileage === 0 ? part.firstChange : part.interval);
+milestones.push({
+id: `${part.id}-${nextDue}`,
+partId: part.id, partName: part.name, icon: part.icon,
+mileage: nextDue, actionType: part.intervalType,
+status: health.status, milesRemaining: health.milesRemaining,
+estimatedCost: getEstimatedCost(part.id),
+tags: part.tags, description: part.description,
+provider: part.provider, providerNote: part.providerNote
+});
+}
+});
+
+// Generate future oil changes
+const oilHistory = getPartServiceHistory('oil');
+const lastOilChange = oilHistory.filter(h => h.serviceType === 'replace')[0]?.mileage || 0;
+const oilPart = getPartById('oil');
+let nextOilDue = lastOilChange + 4000;
+
+while (nextOilDue < currentMileage + 20000) {
+if (nextOilDue > currentMileage && !milestones.find(m => m.partId === 'oil' && m.mileage === nextOilDue)) {
+milestones.push({
+id: `oil-${nextOilDue}`, partId: 'oil', partName: 'Engine Oil & Filter', icon: '🛢️',
+mileage: nextOilDue, actionType: 'replace',
+status: nextOilDue <= currentMileage + 500 ? 'due-soon' : 'upcoming',
+milesRemaining: nextOilDue - currentMileage, estimatedCost: '$75-100',
+tags: oilPart.tags, description: oilPart.description,
+provider: oilPart.provider, providerNote: oilPart.providerNote
+});
+}
+nextOilDue += 4000;
+}
+
+return milestones.sort((a, b) => a.mileage - b.mileage);
+};
+
+const completeService = (milestone, details) => {
+const newService = {
+id: `user-${Date.now()}`,
+date: details.date || new Date().toLocaleDateString(),
+mileage: details.mileage || currentMileage,
+location: details.location || '',
+items: [`${milestone.partName} ${details.actionType === 'check' ? 'inspected' : 'replaced/serviced'}`],
+cost: details.cost || '',
+notes: details.notes || '',
+type: milestone.partId,
+serviceType: details.actionType || milestone.actionType || 'replace',
+source: 'user',
+history: [{ action: 'created', timestamp: new Date().toISOString(), details }]
+};
+
+setCompletedServices(prev => [...prev, newService]);
+saveService(newService);
+};
+
+const updateService = (serviceId, updates) => {
+const updated = completedServices.map(s => {
+if (s.id === serviceId) {
+const newService = {
+...s, ...updates,
+history: [...(s.history || []), { action: 'updated', timestamp: new Date().toISOString(), details: updates }]
+};
+saveService(newService);
+return newService;
+}
+return s;
+});
+setCompletedServices(updated);
+};
+
+const milestones = generateMilestones();
+
+// Components
+const ActionTypeBadge = ({ type, size = 'sm' }) => {
+const styles = {
+check: { bg: 'bg-blue-600', label: '👁️ Inspect' },
+replace: { bg: 'bg-red-600', label: '🔄 Replace' },
+service: { bg: 'bg-purple-600', label: '🔧 Service' },
+};
+const style = styles[type] || styles.service;
+const sizeClass = size === 'xs' ? 'text-xs px-1.5 py-0.5' : 'text-xs px-2 py-1';
+return <span className={`${sizeClass} ${style.bg} text-white rounded-full font-medium`}>{style.label}</span>;
+};
+
+const ProviderBadge = ({ provider, size = 'sm' }) => {
+const info = providerInfo[provider] || providerInfo['any'];
+const sizeClass = size === 'xs' ? 'text-xs px-1.5 py-0.5' : 'text-xs px-2 py-1';
+return <span className={`${sizeClass} ${info.color} text-white rounded-full font-medium`}>{info.label}</span>;
+};
+
+const PartTags = ({ tags, size = 'sm' }) => {
+const sizeClasses = size === 'xs' ? 'text-xs px-1.5 py-0.5' : 'text-xs px-2 py-1';
+return (
+<div className="flex flex-wrap gap-1">
+{(tags || []).slice(0, 2).map(tag => (
+<span key={tag} className={`${sizeClasses} rounded-full ${tagStyles[tag] || 'bg-slate-600 text-white'}`}>
+{tag.replace(/-/g, ' ')}
+</span>
+))}
+</div>
+);
+};
+
+const SyncIndicator = () => {
+const statusConfig = {
+'loading': { color: 'bg-yellow-500', text: 'Loading...' },
+'syncing': { color: 'bg-blue-500', text: 'Syncing...' },
+'synced': { color: 'bg-emerald-500', text: 'Synced' },
+'error': { color: 'bg-red-500', text: 'Sync error' },
+'not-configured': { color: 'bg-orange-500', text: 'Not configured' },
+};
+const config = statusConfig[syncStatus];
+return (
+<div className="flex items-center gap-1.5">
+<div className={`w-2 h-2 rounded-full ${config.color} ${syncStatus === 'syncing' ? 'animate-pulse' : ''}`}></div>
+<span className="text-xs text-slate-400">{config.text}</span>
+</div>
+);
+};
+
+const MilestoneCard = ({ milestone, onComplete, onInfo }) => {
+const statusColors = {
+overdue: 'border-red-500 bg-red-900/20',
+'due-soon': 'border-amber-500 bg-amber-900/20',
+upcoming: 'border-slate-600 bg-slate-800/50'
+};
+
+return (
+<div className={`border rounded-xl p-4 ${statusColors[milestone.status]}`}>
+<div className="flex items-start justify-between gap-2">
+<div className="flex items-start gap-3 flex-1 min-w-0">
+<span className="text-2xl flex-shrink-0">{milestone.icon}</span>
+<div className="min-w-0">
+<div className="font-semibold text-white">{milestone.partName}</div>
+<div className="text-sm text-slate-400">
+{milestone.actionType === 'check' ? 'Inspect' : 'Replace'} @ {milestone.mileage.toLocaleString()} mi
+{milestone.milesRemaining !== undefined && (
+<span className={milestone.milesRemaining < 0 ? 'text-red-400' : ''}>
+{' '}• {milestone.milesRemaining < 0 ? `${Math.abs(milestone.milesRemaining).toLocaleString()} over` : `${milestone.milesRemaining.toLocaleString()} left`}
+</span>
+)}
+</div>
+<div className="flex flex-wrap gap-1 mt-1">
+<ActionTypeBadge type={milestone.actionType} size="xs" />
+<ProviderBadge provider={milestone.provider} size="xs" />
+</div>
+</div>
+</div>
+<div className="flex flex-col items-end gap-2 flex-shrink-0">
+<div className="text-sm text-slate-400">{milestone.estimatedCost}</div>
+<div className="flex gap-1">
+<button onClick={onInfo} className="px-2 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300">ℹ️</button>
+<button onClick={onComplete} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-medium text-white">✓ Log</button>
+</div>
+</div>
+</div>
+</div>
+);
+};
+
+// Service Tab
+const ServiceTab = () => (
+<div className="space-y-4">
+{/* Odometer */}
+<div className="bg-slate-800 rounded-xl p-4 border border-slate-600">
+<label className="block text-sm font-semibold text-slate-300 mb-2">Current Odometer</label>
+{isEditingMileage ? (
+<div className="space-y-3">
+<div className="flex gap-2">
+<input type="number" value={mileageInput} onChange={(e) => setMileageInput(e.target.value)}
+className="flex-1 bg-slate-900 border-2 border-emerald-500 rounded-lg px-4 py-3 text-2xl font-bold text-emerald-400 focus:outline-none" autoFocus />
+<span className="flex items-center text-slate-400">mi</span>
+</div>
+<div className="flex gap-2">
+<button onClick={handleMileageCancel} className="flex-1 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg font-medium text-white">Cancel</button>
+<button onClick={handleMileageUpdate} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-medium text-white">Update</button>
+</div>
+</div>
+) : (
+<div className="flex gap-2 cursor-pointer group" onClick={() => setIsEditingMileage(true)}>
+<div className="flex-1 bg-slate-900 border-2 border-slate-600 group-hover:border-slate-500 rounded-lg px-4 py-3 text-2xl font-bold text-emerald-400">{currentMileage.toLocaleString()}</div>
+<span className="flex items-center text-slate-400">mi</span>
+<span className="flex items-center text-slate-500 text-sm">tap to edit</span>
+</div>
+)}
+<div className="mt-3 bg-slate-700 rounded-full h-3 overflow-hidden">
+<div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400" style={{ width: `${Math.min((currentMileage / 230000) * 100, 100)}%` }} />
+</div>
+<div className="flex justify-between text-xs text-slate-400 mt-1">
+<span>0</span>
+<span>{Math.round((currentMileage / 230000) * 100)}% to 230k</span>
+<span>230k</span>
+</div>
+</div>
+
+{/* Overdue */}
+{milestones.filter(m => m.status === 'overdue').length > 0 && (
+<div className="bg-red-900/30 border border-red-500/50 rounded-xl p-4">
+<h3 className="text-red-400 font-bold text-lg mb-3">⚠️ Overdue</h3>
+<div className="space-y-2">
+{milestones.filter(m => m.status === 'overdue').map(m => (
+<MilestoneCard key={m.id} milestone={m}
+onComplete={() => { setShowCompleteModal(m); setCompleteForm({ mileage: currentMileage, date: new Date().toISOString().split('T')[0], actionType: m.actionType }); }}
+onInfo={() => setShowPartInfo(m.partId)} />
+))}
+</div>
+</div>
+)}
+
+{/* Due Soon */}
+{milestones.filter(m => m.status === 'due-soon').length > 0 && (
+<div className="bg-amber-900/30 border border-amber-500/50 rounded-xl p-4">
+<h3 className="text-amber-400 font-bold text-lg mb-3">📅 Due Soon</h3>
+<div className="space-y-2">
+{milestones.filter(m => m.status === 'due-soon').map(m => (
+<MilestoneCard key={m.id} milestone={m}
+onComplete={() => { setShowCompleteModal(m); setCompleteForm({ mileage: currentMileage, date: new Date().toISOString().split('T')[0], actionType: m.actionType }); }}
+onInfo={() => setShowPartInfo(m.partId)} />
+))}
+</div>
+</div>
+)}
+
+{/* Upcoming */}
+<div className="bg-slate-800/50 border border-slate-600 rounded-xl p-4">
+<h3 className="text-slate-300 font-bold text-lg mb-3">🔮 Upcoming</h3>
+<div className="space-y-2">
+{milestones.filter(m => m.status === 'upcoming').slice(0, 8).map(m => (
+<MilestoneCard key={m.id} milestone={m}
+onComplete={() => { setShowCompleteModal(m); setCompleteForm({ mileage: currentMileage, date: new Date().toISOString().split('T')[0], actionType: m.actionType }); }}
+onInfo={() => setShowPartInfo(m.partId)} />
+))}
+</div>
+</div>
+</div>
+);
+
+// History Tab
+const HistoryTab = () => {
+const allHistory = [...carfaxHistory.map(h => ({ ...h, source: 'carfax' })), ...completedServices].sort((a, b) => b.mileage - a.mileage);
+
+return (
+<div className="space-y-3">
+<div className="text-sm text-slate-400 mb-4">{allHistory.length} service records</div>
+{allHistory.map(service => (
+<div key={service.id} className={`border rounded-xl overflow-hidden ${service.source === 'carfax' ? 'border-slate-600 bg-slate-800/50' : 'border-emerald-600/50 bg-emerald-900/20'}`}>
+<div className="p-4 cursor-pointer" onClick={() => setExpandedService(expandedService === service.id ? null : service.id)}>
+<div className="flex justify-between items-start">
+<div>
+<div className="flex items-center gap-2">
+<span className="font-semibold text-white">{service.mileage.toLocaleString()} mi</span>
+{service.serviceType && <ActionTypeBadge type={service.serviceType} size="xs" />}
+</div>
+<div className="text-sm text-slate-400">{service.date}</div>
+<div className="text-sm text-slate-300 mt-1">{service.location}</div>
+</div>
+<div className="flex items-center gap-2">
+{service.source === 'user' && <span className="px-2 py-0.5 bg-emerald-600/30 text-emerald-400 text-xs rounded-full">You</span>}
+<span className="text-slate-400">{expandedService === service.id ? '▼' : '▶'}</span>
+</div>
+</div>
+<div className="flex flex-wrap gap-1 mt-2">
+{(service.items || []).map((item, i) => (
+<span key={i} className="px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded">{item}</span>
+))}
+</div>
+</div>
+{expandedService === service.id && (
+<div className="border-t border-slate-600 p-4 bg-slate-900/50 space-y-2">
+{service.cost && <div className="text-sm"><span className="text-slate-400">Cost:</span> <span className="text-white">{service.cost}</span></div>}
+{service.notes && <div className="text-sm"><span className="text-slate-400">Notes:</span> <span className="text-white">{service.notes}</span></div>}
+{service.source === 'user' && (
+<button onClick={() => { setEditingService(service); setEditForm({}); }} className="mt-2 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-white">Edit</button>
+)}
+</div>
+)}
+</div>
+))}
+</div>
+);
+};
+
+// Parts Tab
+const PartsTab = () => {
+const partsWithHealth = partsDefinition.map(part => ({ ...part, health: getPartHealth(part) }));
+const filteredParts = partsWithHealth
+.filter(p => p.name.toLowerCase().includes(partsSearch.toLowerCase()))
+.sort((a, b) => partsSort === 'urgency' ? b.health.percentUsed - a.health.percentUsed : a.name.localeCompare(b.name));
+
+return (
+<div className="space-y-4">
+<div className="flex gap-2">
+<input type="text" placeholder="Search..." value={partsSearch} onChange={(e) => setPartsSearch(e.target.value)}
+className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500" />
+<select value={partsSort} onChange={(e) => setPartsSort(e.target.value)}
+className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white">
+<option value="urgency">Urgency</option>
+<option value="alpha">A-Z</option>
+</select>
+</div>
+<div className="space-y-2">
+{filteredParts.map(part => (
+<div key={part.id} className={`border rounded-xl overflow-hidden ${
+part.health.status === 'overdue' ? 'border-red-500 bg-red-900/20' :
+part.health.status === 'due-soon' ? 'border-amber-500 bg-amber-900/20' : 'border-slate-600 bg-slate-800/50'
+}`}>
+<div className="p-4 cursor-pointer" onClick={() => setExpandedPart(expandedPart === part.id ? null : part.id)}>
+<div className="flex items-center justify-between mb-2">
+<div className="flex items-center gap-3">
+<span className="text-2xl">{part.icon}</span>
+<div>
+<div className="font-semibold text-white">{part.name}</div>
+<div className="text-xs text-slate-400">{part.category}</div>
+</div>
+</div>
+<span className="text-slate-400">{expandedPart === part.id ? '▼' : '▶'}</span>
+</div>
+<div className="flex flex-wrap gap-1 mb-2">
+<ActionTypeBadge type={part.intervalType} size="xs" />
+<ProviderBadge provider={part.provider} size="xs" />
+</div>
+<div className="mt-2">
+<div className="flex justify-between text-xs text-slate-400 mb-1">
+<span>Last: {part.health.lastReplacementMileage?.toLocaleString() || 0} mi</span>
+<span>Every {part.interval.toLocaleString()} mi</span>
+</div>
+<div className="bg-slate-700 rounded-full h-3 overflow-hidden">
+<div className={`h-full ${part.health.percentUsed >= 100 ? 'bg-red-500' : part.health.percentUsed >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+style={{ width: `${Math.min(part.health.percentUsed, 100)}%` }} />
+</div>
+<div className="text-xs mt-1 text-right">
+{part.health.milesRemaining < 0
+? <span className="text-red-400">{Math.abs(part.health.milesRemaining).toLocaleString()} mi overdue</span>
+: <span className="text-slate-400">{part.health.milesRemaining.toLocaleString()} mi left</span>}
+</div>
+</div>
+</div>
+{expandedPart === part.id && (
+<div className="border-t border-slate-600 p-4 bg-slate-900/50 space-y-4">
+<div className="text-sm text-slate-300">{part.description}</div>
+<div className="bg-slate-700/50 rounded-lg p-3">
+<ProviderBadge provider={part.provider} size="xs" />
+<p className="text-xs text-slate-300 mt-1">{part.providerNote}</p>
+<p className="text-xs text-slate-400 mt-1">DIY: {part.diyDifficulty}</p>
+</div>
+<div>
+<div className="text-sm font-medium text-slate-300 mb-2">Service History</div>
+{part.health.history.length > 0 ? (
+<div className="space-y-2">
+{part.health.history.slice(0, 5).map((s, i) => (
+<div key={i} className="flex justify-between text-sm py-2 border-b border-slate-700 last:border-0">
+<div>
+<div className="text-white">{s.date}</div>
+<div className="text-slate-400 text-xs">{s.location}</div>
+</div>
+<div className="text-slate-300">{s.mileage.toLocaleString()} mi</div>
+</div>
+))}
+</div>
+) : <div className="text-sm text-slate-500 italic">No records</div>}
+</div>
+</div>
+)}
+</div>
+))}
+</div>
+</div>
+);
+};
+
+if (isLoading) {
+return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">Loading...</div>;
+}
+
+return (
+<div className="min-h-screen bg-slate-900 text-white">
+{/* Header */}
+<div className="sticky top-0 z-40 bg-slate-900 border-b border-slate-700">
+<div className="p-4">
+<div className="flex items-center justify-between">
+<div>
+<h1 className="text-xl font-bold text-white">2018 Forester Tracker</h1>
+<div className="flex items-center gap-3 mt-0.5">
+<span className="text-xs text-slate-400">{currentMileage.toLocaleString()} mi</span>
+<SyncIndicator />
+</div>
+</div>
+<button onClick={() => setShowExport(!showExport)} className="p-2 text-slate-400 hover:text-white text-xl">⚙️</button>
+</div>
+</div>
+<div className="flex border-t border-slate-700">
+{['service', 'history', 'parts'].map(tab => (
+<button key={tab} onClick={() => setActiveTab(tab)}
+className={`flex-1 py-3 text-sm font-medium ${activeTab === tab ? 'text-emerald-400 border-b-2 border-emerald-400 bg-slate-800/50' : 'text-slate-400'}`}>
+{tab === 'service' ? '🔧 Service' : tab === 'history' ? '📋 History' : '🔩 Parts'}
+</button>
+))}
+</div>
+</div>
+
+{/* Setup Warning */}
+{syncStatus === 'not-configured' && (
+<div className="m-4 p-4 bg-orange-900/50 border border-orange-500 rounded-xl">
+<h3 className="font-bold text-orange-400 mb-2">⚠️ Supabase Not Configured</h3>
+<p className="text-sm text-orange-200">Edit the SUPABASE_URL and SUPABASE_ANON_KEY at the top of index.html to enable cloud sync.</p>
+</div>
+)}
+
+{/* Export Panel */}
+{showExport && (
+<div className="bg-slate-800 border-b border-slate-700 p-4">
+<p className="text-xs text-slate-400 mb-2">Data syncs automatically to Supabase</p>
+</div>
+)}
+
+{/* Content */}
+<div className="p-4 pb-20">
+{activeTab === 'service' && <ServiceTab />}
+{activeTab === 'history' && <HistoryTab />}
+{activeTab === 'parts' && <PartsTab />}
+</div>
+
+{/* Complete Modal */}
+{showCompleteModal && (
+<div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4">
+<div className="bg-slate-800 rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto">
+<div className="sticky top-0 bg-slate-800 border-b border-slate-600 p-4 flex justify-between items-center">
+<h3 className="font-bold text-lg text-white">Log Service</h3>
+<button onClick={() => setShowCompleteModal(null)} className="text-slate-400 text-2xl">×</button>
+</div>
+<div className="p-4 space-y-4">
+<div className="bg-slate-700/50 rounded-lg p-3">
+<span className="text-2xl mr-2">{showCompleteModal.icon}</span>
+<span className="font-semibold text-white">{showCompleteModal.partName}</span>
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-2">What was done?</label>
+<div className="flex gap-2">
+<button onClick={() => setCompleteForm({...completeForm, actionType: 'check'})}
+className={`flex-1 py-3 rounded-lg font-medium ${completeForm.actionType === 'check' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+👁️ Inspected
+</button>
+<button onClick={() => setCompleteForm({...completeForm, actionType: 'replace'})}
+className={`flex-1 py-3 rounded-lg font-medium ${completeForm.actionType === 'replace' ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+🔄 Replaced
+</button>
+</div>
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Date</label>
+<input type="date" value={completeForm.date || ''} onChange={(e) => setCompleteForm({...completeForm, date: e.target.value})}
+className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Odometer</label>
+<input type="number" value={completeForm.mileage || ''} onChange={(e) => setCompleteForm({...completeForm, mileage: parseInt(e.target.value)})}
+className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Shop</label>
+<input type="text" value={completeForm.location || ''} onChange={(e) => setCompleteForm({...completeForm, location: e.target.value})}
+placeholder="Shop name" className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500" />
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Cost</label>
+<input type="text" value={completeForm.cost || ''} onChange={(e) => setCompleteForm({...completeForm, cost: e.target.value})}
+placeholder="$0" className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500" />
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Notes</label>
+<textarea value={completeForm.notes || ''} onChange={(e) => setCompleteForm({...completeForm, notes: e.target.value})}
+placeholder="Notes..." rows={2} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 resize-none" />
+</div>
+<div className="flex gap-3">
+<button onClick={() => setShowCompleteModal(null)} className="flex-1 py-3 bg-slate-600 hover:bg-slate-500 rounded-lg font-medium text-white">Cancel</button>
+<button onClick={() => { completeService(showCompleteModal, completeForm); setShowCompleteModal(null); }}
+className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-medium text-white">Save</button>
+</div>
+</div>
+</div>
+</div>
+)}
+
+{/* Edit Modal */}
+{editingService && (
+<div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4">
+<div className="bg-slate-800 rounded-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+<div className="sticky top-0 bg-slate-800 border-b border-slate-600 p-4 flex justify-between items-center">
+<h3 className="font-bold text-lg text-white">Edit Service</h3>
+<button onClick={() => setEditingService(null)} className="text-slate-400 text-2xl">×</button>
+</div>
+<div className="p-4 space-y-4">
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Date</label>
+<input type="text" defaultValue={editingService.date} onChange={(e) => setEditForm({...editForm, date: e.target.value})}
+className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Mileage</label>
+<input type="number" defaultValue={editingService.mileage} onChange={(e) => setEditForm({...editForm, mileage: parseInt(e.target.value)})}
+className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Location</label>
+<input type="text" defaultValue={editingService.location} onChange={(e) => setEditForm({...editForm, location: e.target.value})}
+className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Cost</label>
+<input type="text" defaultValue={editingService.cost} onChange={(e) => setEditForm({...editForm, cost: e.target.value})}
+className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+</div>
+<div>
+<label className="block text-sm font-medium text-slate-300 mb-1">Notes</label>
+<textarea defaultValue={editingService.notes} onChange={(e) => setEditForm({...editForm, notes: e.target.value})}
+rows={2} className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white resize-none" />
+</div>
+<div className="flex gap-3">
+<button onClick={() => setEditingService(null)} className="flex-1 py-3 bg-slate-600 hover:bg-slate-500 rounded-lg font-medium text-white">Cancel</button>
+<button onClick={() => { updateService(editingService.id, editForm); setEditingService(null); setEditForm({}); }}
+className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-medium text-white">Save</button>
+</div>
+</div>
+</div>
+</div>
+)}
+
+{/* Part Info Modal */}
+{showPartInfo && (() => {
+const part = getPartById(showPartInfo);
+if (!part) return null;
+return (
+<div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-4" onClick={() => setShowPartInfo(null)}>
+<div className="bg-slate-800 rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+<div className="sticky top-0 bg-slate-800 border-b border-slate-600 p-4 flex justify-between items-center">
+<div className="flex items-center gap-3">
+<span className="text-3xl">{part.icon}</span>
+<h3 className="font-bold text-lg text-white">{part.name}</h3>
+</div>
+<button onClick={() => setShowPartInfo(null)} className="text-slate-400 text-2xl">×</button>
+</div>
+<div className="p-4 space-y-4">
+<div className="flex flex-wrap gap-2">
+<ActionTypeBadge type={part.intervalType} />
+<ProviderBadge provider={part.provider} />
+</div>
+<PartTags tags={part.tags} />
+<div className="text-sm text-slate-300">{part.description}</div>
+<div className="bg-slate-700/50 rounded-lg p-3 space-y-2">
+<div className="flex justify-between text-sm">
+<span className="text-slate-400">Replace Interval:</span>
+<span className="text-white font-medium">{part.interval.toLocaleString()} mi</span>
+</div>
+{part.checkInterval && (
+<div className="flex justify-between text-sm">
+<span className="text-slate-400">Inspect Interval:</span>
+<span className="text-white font-medium">{part.checkInterval.toLocaleString()} mi</span>
+</div>
+)}
+<div className="flex justify-between text-sm">
+<span className="text-slate-400">Est. Cost:</span>
+<span className="text-white font-medium">{getEstimatedCost(part.id)}</span>
+</div>
+<div className="flex justify-between text-sm">
+<span className="text-slate-400">DIY:</span>
+<span className="text-white font-medium">{part.diyDifficulty}</span>
+</div>
+</div>
+<div className="bg-slate-700/50 rounded-lg p-3">
+<ProviderBadge provider={part.provider} />
+<p className="text-sm text-slate-300 mt-2">{part.providerNote}</p>
+</div>
+</div>
+</div>
+</div>
+);
+})()}
+</div>
+);
+};
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>
+
